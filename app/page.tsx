@@ -266,7 +266,7 @@ export default function Home() {
             </div>
             <div>
               <div className="text-sm font-semibold leading-4">DecisionLayer</div>
-              <div className="text-xs text-slate-500">AI Product Decision Engine</div>
+              <div className="text-xs text-slate-500">Structured Product Decision Engine</div>
             </div>
           </div>
 
@@ -419,7 +419,7 @@ export default function Home() {
             <div className="rounded-2xl border bg-white p-6 shadow-sm">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-bold">Create a decision</h2>
+                  <h2 className="text-xl font-bold">Evaluate a product decision</h2>
                   <p className="mt-1 text-sm text-slate-500">
                     A lightweight tool to help product teams evaluate ideas using impact,
                     effort, confidence, and AI-assisted analysis.
@@ -603,10 +603,6 @@ export default function Home() {
                     )}
                   </tbody>
                 </table>
-              </div>
-
-              <div className="mt-4 text-xs text-slate-500">
-                Next iteration idea: add “Compare top 3” for a side-by-side decision view.
               </div>
             </div>
           )}

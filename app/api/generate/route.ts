@@ -5,6 +5,12 @@ export const runtime = "nodejs";
 type Recommendation = "BUILD" | "DELAY" | "KILL";
 type Severity = "low" | "medium" | "high";
 
+type UserStory = {
+  title: string;
+  story: string;
+  priority: "P0" | "P1" | "P2";
+};
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -242,29 +248,29 @@ function toTitleCase(input: string) {
     .join(" ");
 }
 
-function buildUserStories(featureName: string, recommendation: Recommendation) {
+function buildUserStories(featureName: string, recommendation: Recommendation): UserStory[] {
   const cleanName = toTitleCase(featureName);
 
   const stories = [
     {
       title: `Access ${cleanName}`,
       story: `As a user, I want to access ${featureName} easily so that I can use its core value without confusion.`,
-      priority: "P0" as const,
+      priority: "P0",
     },
     {
       title: `Complete core workflow`,
       story: `As a user, I want the main ${featureName} flow to be simple and reliable so that I can achieve the intended outcome quickly.`,
-      priority: "P0" as const,
+      priority: "P0",
     },
     {
       title: `See outcome or feedback`,
       story: `As a user, I want clear feedback after using ${featureName} so that I understand the result and next step.`,
-      priority: "P1" as const,
+      priority: "P1",
     },
     {
       title: `Measure effectiveness`,
       story: `As a product team member, I want basic tracking for ${featureName} so that I can evaluate adoption and success.`,
-      priority: "P1" as const,
+      priority: "P1",
     },
   ];
 
@@ -272,17 +278,17 @@ function buildUserStories(featureName: string, recommendation: Recommendation) {
     stories.push({
       title: `Support launch readiness`,
       story: `As a product owner, I want a tightly scoped first release so that the team can launch quickly and learn from real usage.`,
-      priority: "P2" as const,
+      priority: "P2",
     });
   } else {
     stories.push({
       title: `Validate before expansion`,
       story: `As a product team member, I want lightweight validation around ${featureName} so that we invest only after reducing uncertainty.`,
-      priority: "P2" as const,
+      priority: "P2",
     });
   }
 
-  return stories.slice(0, 5);
+  return stories.slice(0, 5) as UserStory [];
 }
 
 export async function POST(req: Request) {

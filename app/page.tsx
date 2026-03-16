@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 type Risk = { item: string; severity: "low" | "medium" | "high" };
 type Story = { title: string; story: string; priority: "P0" | "P1" | "P2" };
@@ -23,8 +23,8 @@ type DecisionInput = {
   description: string;
   goal: string;
   impact: "Low" | "Medium" | "High";
-  effort: number; // 1-10
-  confidence: number; // 1-5
+  effort: number;
+  confidence: number;
 };
 
 type SavedDecision = {
@@ -64,34 +64,54 @@ function getTopRisk(risks: Risk[]) {
 function getDecisionSummary(input: DecisionInput, result: DecisionResult) {
   const reasons: string[] = [];
 
-  if (input.impact === "High") reasons.push("The opportunity has high potential business impact.");
-  if (input.impact === "Medium") reasons.push("The opportunity has moderate expected business impact.");
-  if (input.impact === "Low") reasons.push("The opportunity currently looks low impact.");
+  if (input.impact === "High") {
+    reasons.push("The opportunity has high potential business impact.");
+  } else if (input.impact === "Medium") {
+    reasons.push("The opportunity has moderate expected business impact.");
+  } else {
+    reasons.push("The opportunity currently looks low impact.");
+  }
 
-  if (input.effort <= 3) reasons.push("Implementation effort is relatively low, which supports faster execution.");
-  else if (input.effort <= 6) reasons.push("Implementation effort is manageable but still needs trade-off planning.");
-  else reasons.push("Implementation effort is high, which increases delivery risk and slows time to value.");
+  if (input.effort <= 3) {
+    reasons.push("Implementation effort is relatively low, which supports faster execution.");
+  } else if (input.effort <= 6) {
+    reasons.push("Implementation effort is manageable but still needs trade-off planning.");
+  } else {
+    reasons.push("Implementation effort is high, which increases delivery risk and slows time to value.");
+  }
 
-  if (input.confidence >= 4) reasons.push("Confidence is strong enough to support a near-term product decision.");
-  else if (input.confidence === 3) reasons.push("Confidence is moderate, so some validation is still needed.");
-  else reasons.push("Confidence is low, so more validation is needed before committing heavily.");
+  if (input.confidence >= 4) {
+    reasons.push("Confidence is strong enough to support a near-term product decision.");
+  } else if (input.confidence === 3) {
+    reasons.push("Confidence is moderate, so some validation is still needed.");
+  } else {
+    reasons.push("Confidence is low, so more validation is needed before committing heavily.");
+  }
 
   let nextStep = "Validate scope, define success metrics, and align on a lean first release.";
+
   if (result.recommendation === "BUILD") {
-    nextStep = "Move into MVP planning, define the smallest shippable scope, and confirm success metrics.";
+    nextStep =
+      "Move into MVP planning, define the smallest shippable scope, and confirm success metrics.";
   } else if (result.recommendation === "DELAY") {
-    nextStep = "Run lightweight validation first: clarify scope, test demand, and reduce uncertainty before building.";
-  } else if (result.recommendation === "KILL") {
-    nextStep = "Deprioritize for now and revisit only if the strategic value or user evidence changes materially.";
+    nextStep =
+      "Run lightweight validation first: clarify scope, test demand, and reduce uncertainty before building.";
+  } else {
+    nextStep =
+      "Deprioritize for now and revisit only if the strategic value or user evidence changes materially.";
   }
 
   let confidenceLift = "Gather a small round of user validation and sharpen the success metric.";
+
   if (input.confidence <= 2) {
-    confidenceLift = "Interview 5–7 target users, define the exact problem, and confirm a measurable outcome.";
+    confidenceLift =
+      "Interview 5–7 target users, define the exact problem, and confirm a measurable outcome.";
   } else if (input.effort >= 7) {
-    confidenceLift = "Break the feature into a smaller MVP and estimate the first release separately.";
+    confidenceLift =
+      "Break the feature into a smaller MVP and estimate the first release separately.";
   } else if (input.impact === "Low") {
-    confidenceLift = "Validate whether this meaningfully changes adoption, retention, or revenue before investing.";
+    confidenceLift =
+      "Validate whether this meaningfully changes adoption, retention, or revenue before investing.";
   }
 
   const topRisk = getTopRisk(result.risks);
@@ -145,10 +165,10 @@ export default function Home() {
 
   const filteredSaved = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = saved.filter((d) => {
+
+    const list = saved.filter((d) => {
       if (!q) return true;
-      const t =
-        `${d.input.featureName} ${d.input.goal} ${d.input.description}`.toLowerCase();
+      const t = `${d.input.featureName} ${d.input.goal} ${d.input.description}`.toLowerCase();
       return t.includes(q);
     });
 
@@ -183,8 +203,9 @@ export default function Home() {
       const data = JSON.parse(text) as DecisionResult;
       setResult(data);
       setView("dashboard");
-    } catch (e: any) {
-      setApiError(e?.message || "Something went wrong");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Something went wrong";
+      setApiError(message);
     } finally {
       setLoading(false);
     }
@@ -452,7 +473,12 @@ export default function Home() {
                     <select
                       className="mt-1 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-200"
                       value={input.impact}
-                      onChange={(e) => setInput((p) => ({ ...p, impact: e.target.value as any }))}
+                      onChange={(e) =>
+                        setInput((p) => ({
+                          ...p,
+                          impact: e.target.value as "Low" | "Medium" | "High",
+                        }))
+                      }
                     >
                       <option>Low</option>
                       <option>Medium</option>
@@ -625,6 +651,7 @@ function Dashboard({
   }
 
   const summary = getDecisionSummary(input, result);
+  const safeResult = result;
 
   async function copySnapshot() {
     const snapshot = `DecisionLayer Snapshot
@@ -635,8 +662,8 @@ Impact: ${input.impact}
 Effort: ${input.effort}
 Confidence: ${input.confidence}
 
-Score: ${result.score}
-Recommendation: ${result.recommendation}
+Score: ${safeResult.score}
+Recommendation: ${safeResult.recommendation}
 
 Why this decision:
 - ${summary.reasons.join("\n- ")}
@@ -827,7 +854,7 @@ function Card({
 }: {
   title: string;
   subtitle?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="rounded-2xl border bg-white p-5 shadow-sm">

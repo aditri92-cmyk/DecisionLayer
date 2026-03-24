@@ -18,13 +18,36 @@ type DecisionResult = {
   user_stories: Story[];
 };
 
+type StrategicGoal =
+  | "Revenue"
+  | "Retention"
+  | "Compliance"
+  | "Efficiency"
+  | "Customer Experience";
+
+type ImpactLevel = "None" | "Low" | "Medium" | "High";
+type StandardLevel = "Low" | "Medium" | "High";
+type UrgencyLevel = "Low" | "Medium" | "High" | "Critical";
+
 type DecisionInput = {
   featureName: string;
   description: string;
-  goal: string;
-  impact: "Low" | "Medium" | "High";
+
+  strategicGoal: StrategicGoal;
+
+  revenueImpact: ImpactLevel;
+  costSaving: ImpactLevel;
+  userImpact: StandardLevel;
+  regulatoryUrgency: UrgencyLevel;
+  timeSensitivity: StandardLevel;
+  dependencyComplexity: StandardLevel;
+
   effort: number;
   confidence: number;
+  riskLevel: StandardLevel;
+
+  assumptions?: string;
+  evidence?: string;
 };
 
 type SavedDecision = {
@@ -34,7 +57,7 @@ type SavedDecision = {
   output: DecisionResult;
 };
 
-const STORAGE_KEY = "decision_engine_saved_v1";
+const STORAGE_KEY = "decision_engine_saved_v2";
 
 function uid() {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -52,6 +75,27 @@ function recBadge(rec: DecisionResult["recommendation"]) {
   return "bg-red-600 text-white";
 }
 
+function neutralBadge() {
+  return "rounded-full border bg-slate-50 px-3 py-1 text-xs text-slate-700";
+}
+
+function levelToScore(value: ImpactLevel | StandardLevel | UrgencyLevel) {
+  const map: Record<string, number> = {
+    None: 0,
+    Low: 1,
+    Medium: 2,
+    High: 3,
+    Critical: 4,
+  };
+  return map[value] ?? 0;
+}
+
+function labelTone(value: string) {
+  if (value === "Critical" || value === "High") return "border-red-200 bg-red-50 text-red-700";
+  if (value === "Medium") return "border-amber-200 bg-amber-50 text-amber-800";
+  return "border-emerald-200 bg-emerald-50 text-emerald-800";
+}
+
 function getTopRisk(risks: Risk[]) {
   if (!risks?.length) return null;
   return (
@@ -61,57 +105,156 @@ function getTopRisk(risks: Risk[]) {
   );
 }
 
+function defaultDecisionInput(): DecisionInput {
+  return {
+    featureName: "",
+    description: "",
+    strategicGoal: "Revenue",
+    revenueImpact: "Medium",
+    costSaving: "Medium",
+    userImpact: "Medium",
+    regulatoryUrgency: "Medium",
+    timeSensitivity: "Medium",
+    dependencyComplexity: "Medium",
+    effort: 5,
+    confidence: 3,
+    riskLevel: "Medium",
+    assumptions: "",
+    evidence: "",
+  };
+}
+
+function normalizeDecisionInput(input: Partial<DecisionInput> & Record<string, unknown>): DecisionInput {
+  return {
+    featureName: typeof input.featureName === "string" ? input.featureName : "",
+    description: typeof input.description === "string" ? input.description : "",
+    strategicGoal:
+      typeof input.strategicGoal === "string"
+        ? (input.strategicGoal as StrategicGoal)
+        : typeof input.goal === "string"
+        ? mapLegacyGoal(input.goal)
+        : "Revenue",
+    revenueImpact:
+      typeof input.revenueImpact === "string"
+        ? (input.revenueImpact as ImpactLevel)
+        : typeof input.impact === "string"
+        ? mapLegacyImpact(input.impact)
+        : "Medium",
+    costSaving:
+      typeof input.costSaving === "string" ? (input.costSaving as ImpactLevel) : "Medium",
+    userImpact: typeof input.userImpact === "string" ? (input.userImpact as StandardLevel) : "Medium",
+    regulatoryUrgency:
+      typeof input.regulatoryUrgency === "string"
+        ? (input.regulatoryUrgency as UrgencyLevel)
+        : "Medium",
+    timeSensitivity:
+      typeof input.timeSensitivity === "string"
+        ? (input.timeSensitivity as StandardLevel)
+        : "Medium",
+    dependencyComplexity:
+      typeof input.dependencyComplexity === "string"
+        ? (input.dependencyComplexity as StandardLevel)
+        : "Medium",
+    effort:
+      typeof input.effort === "number" && Number.isFinite(input.effort) ? input.effort : 5,
+    confidence:
+      typeof input.confidence === "number" && Number.isFinite(input.confidence)
+        ? input.confidence
+        : 3,
+    riskLevel: typeof input.riskLevel === "string" ? (input.riskLevel as StandardLevel) : "Medium",
+    assumptions: typeof input.assumptions === "string" ? input.assumptions : "",
+    evidence: typeof input.evidence === "string" ? input.evidence : "",
+  };
+}
+
+function mapLegacyGoal(goal: string): StrategicGoal {
+  if (goal === "Retention") return "Retention";
+  if (goal === "Revenue") return "Revenue";
+  if (goal === "Tech debt") return "Efficiency";
+  if (goal === "Enterprise") return "Customer Experience";
+  return "Revenue";
+}
+
+function mapLegacyImpact(impact: string): ImpactLevel {
+  if (impact === "Low") return "Low";
+  if (impact === "High") return "High";
+  return "Medium";
+}
+
 function getDecisionSummary(input: DecisionInput, result: DecisionResult) {
   const reasons: string[] = [];
 
-  if (input.impact === "High") {
-    reasons.push("The opportunity has high potential business impact.");
-  } else if (input.impact === "Medium") {
-    reasons.push("The opportunity has moderate expected business impact.");
+  const valueSignals = [
+    { label: "revenue impact", value: input.revenueImpact },
+    { label: "cost saving potential", value: input.costSaving },
+    { label: "user impact", value: input.userImpact },
+    { label: "regulatory urgency", value: input.regulatoryUrgency },
+  ];
+
+  const strongestValue = [...valueSignals].sort(
+    (a, b) => levelToScore(b.value) - levelToScore(a.value)
+  )[0];
+
+  if (levelToScore(strongestValue.value) >= 3) {
+    reasons.push(
+      `The opportunity has strong ${strongestValue.label}, which materially strengthens the business case.`
+    );
+  } else if (levelToScore(strongestValue.value) === 2) {
+    reasons.push(
+      `The opportunity shows moderate ${strongestValue.label}, so it may be worth pursuing with a focused scope.`
+    );
   } else {
-    reasons.push("The opportunity currently looks low impact.");
+    reasons.push(
+      "The current value signals look limited, so the case for investment is not yet very strong."
+    );
   }
 
-  if (input.effort <= 3) {
-    reasons.push("Implementation effort is relatively low, which supports faster execution.");
-  } else if (input.effort <= 6) {
-    reasons.push("Implementation effort is manageable but still needs trade-off planning.");
+  if (input.effort <= 3 && input.dependencyComplexity === "Low") {
+    reasons.push(
+      "Delivery effort and dependency complexity are both relatively low, which supports faster execution."
+    );
+  } else if (input.effort <= 6 && input.dependencyComplexity !== "High") {
+    reasons.push(
+      "The feature looks feasible with manageable delivery trade-offs, but scope discipline will still matter."
+    );
   } else {
-    reasons.push("Implementation effort is high, which increases delivery risk and slows time to value.");
+    reasons.push(
+      "Execution complexity is meaningful due to higher effort or dependencies, which increases delivery risk."
+    );
   }
 
   if (input.confidence >= 4) {
-    reasons.push("Confidence is strong enough to support a near-term product decision.");
+    reasons.push("Confidence is strong enough to support a near-term decision.");
   } else if (input.confidence === 3) {
-    reasons.push("Confidence is moderate, so some validation is still needed.");
+    reasons.push("Confidence is moderate, so targeted validation is still needed.");
   } else {
-    reasons.push("Confidence is low, so more validation is needed before committing heavily.");
+    reasons.push("Confidence is low, so more evidence is needed before committing materially.");
   }
 
   let nextStep = "Validate scope, define success metrics, and align on a lean first release.";
 
   if (result.recommendation === "BUILD") {
     nextStep =
-      "Move into MVP planning, define the smallest shippable scope, and confirm success metrics.";
+      "Move into MVP planning, confirm the first release scope, and align on success metrics and ownership.";
   } else if (result.recommendation === "DELAY") {
     nextStep =
-      "Run lightweight validation first: clarify scope, test demand, and reduce uncertainty before building.";
+      "Run lightweight validation first: tighten the scope, test demand, and reduce uncertainty before building.";
   } else {
     nextStep =
-      "Deprioritize for now and revisit only if the strategic value or user evidence changes materially.";
+      "Deprioritize for now and revisit only if the business case, urgency, or supporting evidence changes materially.";
   }
 
-  let confidenceLift = "Gather a small round of user validation and sharpen the success metric.";
+  let confidenceLift = "Sharpen the evidence base with user validation and clearer success criteria.";
 
   if (input.confidence <= 2) {
     confidenceLift =
-      "Interview 5–7 target users, define the exact problem, and confirm a measurable outcome.";
-  } else if (input.effort >= 7) {
+      "Interview target users, define the exact operational pain point, and validate a measurable outcome.";
+  } else if (input.dependencyComplexity === "High") {
     confidenceLift =
-      "Break the feature into a smaller MVP and estimate the first release separately.";
-  } else if (input.impact === "Low") {
+      "Break the idea into a smaller MVP and validate the first release without downstream dependencies.";
+  } else if (input.riskLevel === "High") {
     confidenceLift =
-      "Validate whether this meaningfully changes adoption, retention, or revenue before investing.";
+      "Reduce implementation and adoption risk through a tighter pilot, staged rollout, or narrower first use case.";
   }
 
   const topRisk = getTopRisk(result.risks);
@@ -124,17 +267,26 @@ function getDecisionSummary(input: DecisionInput, result: DecisionResult) {
   };
 }
 
+function getValueScore(input: DecisionInput) {
+  return (
+    levelToScore(input.revenueImpact) +
+    levelToScore(input.costSaving) +
+    levelToScore(input.userImpact) +
+    levelToScore(input.regulatoryUrgency)
+  );
+}
+
+function getFeasibilityScore(input: DecisionInput) {
+  const effortScore = 11 - input.effort;
+  const dependencyScore = 4 - levelToScore(input.dependencyComplexity);
+  const riskScore = 4 - levelToScore(input.riskLevel);
+  return effortScore + dependencyScore + riskScore;
+}
+
 export default function Home() {
   const [view, setView] = useState<"create" | "dashboard" | "rankings">("create");
 
-  const [input, setInput] = useState<DecisionInput>({
-    featureName: "",
-    description: "",
-    goal: "Growth",
-    impact: "Medium",
-    effort: 5,
-    confidence: 3,
-  });
+  const [input, setInput] = useState<DecisionInput>(defaultDecisionInput());
 
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -149,7 +301,15 @@ export default function Home() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setSaved(JSON.parse(raw));
+      if (raw) {
+        const parsed = JSON.parse(raw) as SavedDecision[];
+        setSaved(
+          parsed.map((item) => ({
+            ...item,
+            input: normalizeDecisionInput(item.input as Partial<DecisionInput> & Record<string, unknown>),
+          }))
+        );
+      }
     } catch {
       // ignore
     }
@@ -168,7 +328,10 @@ export default function Home() {
 
     const list = saved.filter((d) => {
       if (!q) return true;
-      const t = `${d.input.featureName} ${d.input.goal} ${d.input.description}`.toLowerCase();
+      const t =
+        `${d.input.featureName} ${d.input.strategicGoal} ${d.input.description} ` +
+        `${d.input.revenueImpact} ${d.input.costSaving} ${d.input.userImpact} ` +
+        `${d.input.regulatoryUrgency} ${d.input.evidence ?? ""}`.toLowerCase();
       return t.includes(q);
     });
 
@@ -241,14 +404,7 @@ export default function Home() {
     setActiveId(null);
     setResult(null);
     setApiError(null);
-    setInput({
-      featureName: "",
-      description: "",
-      goal: "Growth",
-      impact: "Medium",
-      effort: 5,
-      confidence: 3,
-    });
+    setInput(defaultDecisionInput());
     setView("create");
   }
 
@@ -354,10 +510,13 @@ export default function Home() {
                       <div className="truncate text-sm font-semibold">{d.input.featureName}</div>
                       <div className="mt-1 flex flex-wrap items-center gap-2">
                         <span className="rounded-full border px-2 py-0.5 text-[11px] text-slate-600">
-                          {d.input.goal}
+                          {d.input.strategicGoal}
                         </span>
                         <span className="rounded-full border px-2 py-0.5 text-[11px] text-slate-600">
-                          Impact: {d.input.impact}
+                          Rev: {d.input.revenueImpact}
+                        </span>
+                        <span className="rounded-full border px-2 py-0.5 text-[11px] text-slate-600">
+                          Urgency: {d.input.regulatoryUrgency}
                         </span>
                         <span className="rounded-full border px-2 py-0.5 text-[11px] text-slate-600">
                           Effort: {d.input.effort}
@@ -421,23 +580,23 @@ export default function Home() {
                 <div>
                   <h2 className="text-xl font-bold">Evaluate a product decision</h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    A lightweight tool to help product teams evaluate ideas using impact,
-                    effort, confidence, and AI-assisted analysis.
+                    A structured tool to help product teams evaluate ideas using value, urgency,
+                    feasibility, confidence, and AI-assisted analysis.
                   </p>
                 </div>
                 <div className="rounded-2xl border bg-slate-50 px-4 py-3 text-xs text-slate-600">
-                  Tip: Keep the description to 3–6 lines for the clearest output.
+                  Tip: Keep the description focused on the problem, user, and outcome.
                 </div>
               </div>
 
-              <div className="mt-6 grid gap-4">
+              <div className="mt-6 grid gap-6">
                 <div>
                   <label className="text-sm font-medium">Feature name</label>
                   <input
                     className="mt-1 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-200"
                     value={input.featureName}
                     onChange={(e) => setInput((p) => ({ ...p, featureName: e.target.value }))}
-                    placeholder="e.g., AI-powered discrepancy detection engine"
+                    placeholder="e.g., AI-powered reconciliation break resolution engine"
                   />
                 </div>
 
@@ -448,35 +607,131 @@ export default function Home() {
                     rows={5}
                     value={input.description}
                     onChange={(e) => setInput((p) => ({ ...p, description: e.target.value }))}
-                    placeholder="Describe the feature, who it serves, the user problem, and the outcome it should drive."
+                    placeholder="Describe the problem, who it serves, the workflow gap, and the outcome it should drive."
                   />
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-3">
+                <SectionTitle
+                  title="Strategic context"
+                  subtitle="Anchor the opportunity to the business objective."
+                />
+                <div className="grid gap-4 md:grid-cols-2">
                   <div>
-                    <label className="text-sm font-medium">Primary goal</label>
+                    <label className="text-sm font-medium">Strategic goal</label>
                     <select
                       className="mt-1 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-200"
-                      value={input.goal}
-                      onChange={(e) => setInput((p) => ({ ...p, goal: e.target.value }))}
+                      value={input.strategicGoal}
+                      onChange={(e) =>
+                        setInput((p) => ({
+                          ...p,
+                          strategicGoal: e.target.value as StrategicGoal,
+                        }))
+                      }
                     >
                       <option>Revenue</option>
-                      <option>Growth</option>
                       <option>Retention</option>
-                      <option>Enterprise</option>
-                      <option>Tech debt</option>
+                      <option>Compliance</option>
+                      <option>Efficiency</option>
+                      <option>Customer Experience</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="text-sm font-medium">Impact</label>
+                    <label className="text-sm font-medium">Regulatory urgency</label>
                     <select
                       className="mt-1 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-200"
-                      value={input.impact}
+                      value={input.regulatoryUrgency}
                       onChange={(e) =>
                         setInput((p) => ({
                           ...p,
-                          impact: e.target.value as "Low" | "Medium" | "High",
+                          regulatoryUrgency: e.target.value as UrgencyLevel,
+                        }))
+                      }
+                    >
+                      <option>Low</option>
+                      <option>Medium</option>
+                      <option>High</option>
+                      <option>Critical</option>
+                    </select>
+                  </div>
+                </div>
+
+                <SectionTitle
+                  title="Value drivers"
+                  subtitle="Capture the business value across revenue, savings, and user impact."
+                />
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <label className="text-sm font-medium">Revenue impact</label>
+                    <select
+                      className="mt-1 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-200"
+                      value={input.revenueImpact}
+                      onChange={(e) =>
+                        setInput((p) => ({
+                          ...p,
+                          revenueImpact: e.target.value as ImpactLevel,
+                        }))
+                      }
+                    >
+                      <option>None</option>
+                      <option>Low</option>
+                      <option>Medium</option>
+                      <option>High</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium">Cost saving potential</label>
+                    <select
+                      className="mt-1 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-200"
+                      value={input.costSaving}
+                      onChange={(e) =>
+                        setInput((p) => ({
+                          ...p,
+                          costSaving: e.target.value as ImpactLevel,
+                        }))
+                      }
+                    >
+                      <option>None</option>
+                      <option>Low</option>
+                      <option>Medium</option>
+                      <option>High</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium">User / customer impact</label>
+                    <select
+                      className="mt-1 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-200"
+                      value={input.userImpact}
+                      onChange={(e) =>
+                        setInput((p) => ({
+                          ...p,
+                          userImpact: e.target.value as StandardLevel,
+                        }))
+                      }
+                    >
+                      <option>Low</option>
+                      <option>Medium</option>
+                      <option>High</option>
+                    </select>
+                  </div>
+                </div>
+
+                <SectionTitle
+                  title="Delivery feasibility"
+                  subtitle="Reflect complexity, timing pressure, delivery effort, and risk."
+                />
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <label className="text-sm font-medium">Time sensitivity</label>
+                    <select
+                      className="mt-1 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-200"
+                      value={input.timeSensitivity}
+                      onChange={(e) =>
+                        setInput((p) => ({
+                          ...p,
+                          timeSensitivity: e.target.value as StandardLevel,
                         }))
                       }
                     >
@@ -487,6 +742,44 @@ export default function Home() {
                   </div>
 
                   <div>
+                    <label className="text-sm font-medium">Dependency complexity</label>
+                    <select
+                      className="mt-1 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-200"
+                      value={input.dependencyComplexity}
+                      onChange={(e) =>
+                        setInput((p) => ({
+                          ...p,
+                          dependencyComplexity: e.target.value as StandardLevel,
+                        }))
+                      }
+                    >
+                      <option>Low</option>
+                      <option>Medium</option>
+                      <option>High</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium">Risk level</label>
+                    <select
+                      className="mt-1 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-200"
+                      value={input.riskLevel}
+                      onChange={(e) =>
+                        setInput((p) => ({
+                          ...p,
+                          riskLevel: e.target.value as StandardLevel,
+                        }))
+                      }
+                    >
+                      <option>Low</option>
+                      <option>Medium</option>
+                      <option>High</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
                     <label className="text-sm font-medium">Effort (1–10)</label>
                     <input
                       className="mt-1 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-200"
@@ -494,12 +787,15 @@ export default function Home() {
                       min={1}
                       max={10}
                       value={input.effort}
-                      onChange={(e) => setInput((p) => ({ ...p, effort: Number(e.target.value) }))}
+                      onChange={(e) =>
+                        setInput((p) => ({
+                          ...p,
+                          effort: Number(e.target.value),
+                        }))
+                      }
                     />
                   </div>
-                </div>
 
-                <div className="grid gap-4 md:grid-cols-3">
                   <div>
                     <label className="text-sm font-medium">Confidence (1–5)</label>
                     <input
@@ -509,20 +805,51 @@ export default function Home() {
                       max={5}
                       value={input.confidence}
                       onChange={(e) =>
-                        setInput((p) => ({ ...p, confidence: Number(e.target.value) }))
+                        setInput((p) => ({
+                          ...p,
+                          confidence: Number(e.target.value),
+                        }))
                       }
                     />
                   </div>
+                </div>
 
-                  <div className="flex items-end gap-2 md:col-span-2">
-                    <button
-                      className="w-full rounded-xl bg-slate-900 px-5 py-3 font-medium text-white hover:bg-black disabled:opacity-60"
-                      onClick={generateDecision}
-                      disabled={loading}
-                    >
-                      {loading ? "Generating…" : "Generate Dashboard"}
-                    </button>
+                <SectionTitle
+                  title="Supporting inputs"
+                  subtitle="Optional fields to improve explainability and recommendation quality."
+                />
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="text-sm font-medium">Assumptions</label>
+                    <textarea
+                      className="mt-1 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-200"
+                      rows={4}
+                      value={input.assumptions ?? ""}
+                      onChange={(e) => setInput((p) => ({ ...p, assumptions: e.target.value }))}
+                      placeholder="List key assumptions, dependencies, or scope boundaries."
+                    />
                   </div>
+
+                  <div>
+                    <label className="text-sm font-medium">Evidence / supporting data</label>
+                    <textarea
+                      className="mt-1 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-200"
+                      rows={4}
+                      value={input.evidence ?? ""}
+                      onChange={(e) => setInput((p) => ({ ...p, evidence: e.target.value }))}
+                      placeholder="User feedback, operational pain points, client asks, metrics, or regulatory drivers."
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-end gap-2">
+                  <button
+                    className="w-full rounded-xl bg-slate-900 px-5 py-3 font-medium text-white hover:bg-black disabled:opacity-60"
+                    onClick={generateDecision}
+                    disabled={loading}
+                  >
+                    {loading ? "Generating…" : "Generate Dashboard"}
+                  </button>
                 </div>
 
                 {apiError && (
@@ -568,6 +895,8 @@ export default function Home() {
                     <tr>
                       <th className="px-4 py-3 text-left">Feature</th>
                       <th className="px-4 py-3 text-left">Goal</th>
+                      <th className="px-4 py-3 text-left">Value</th>
+                      <th className="px-4 py-3 text-left">Feasibility</th>
                       <th className="px-4 py-3 text-left">Score</th>
                       <th className="px-4 py-3 text-left">Recommendation</th>
                       <th className="px-4 py-3 text-left">Created</th>
@@ -576,7 +905,7 @@ export default function Home() {
                   <tbody>
                     {rankings.length === 0 ? (
                       <tr>
-                        <td className="px-4 py-6 text-slate-500" colSpan={5}>
+                        <td className="px-4 py-6 text-slate-500" colSpan={7}>
                           No saved decisions yet.
                         </td>
                       </tr>
@@ -584,7 +913,9 @@ export default function Home() {
                       rankings.map((d) => (
                         <tr key={d.id} className="border-t">
                           <td className="px-4 py-3 font-semibold">{d.input.featureName}</td>
-                          <td className="px-4 py-3">{d.input.goal}</td>
+                          <td className="px-4 py-3">{d.input.strategicGoal}</td>
+                          <td className="px-4 py-3">{getValueScore(d.input)}</td>
+                          <td className="px-4 py-3">{getFeasibilityScore(d.input)}</td>
                           <td className="px-4 py-3 font-bold">{d.output.score}</td>
                           <td className="px-4 py-3">
                             <span
@@ -653,10 +984,19 @@ function Dashboard({
     const snapshot = `DecisionLayer Snapshot
 
 Feature: ${input.featureName}
-Goal: ${input.goal}
-Impact: ${input.impact}
+Strategic goal: ${input.strategicGoal}
+Revenue impact: ${input.revenueImpact}
+Cost saving: ${input.costSaving}
+User impact: ${input.userImpact}
+Regulatory urgency: ${input.regulatoryUrgency}
+Time sensitivity: ${input.timeSensitivity}
+Dependency complexity: ${input.dependencyComplexity}
 Effort: ${input.effort}
 Confidence: ${input.confidence}
+Risk level: ${input.riskLevel}
+
+Value score: ${getValueScore(input)}
+Feasibility score: ${getFeasibilityScore(input)}
 
 Score: ${safeResult.score}
 Recommendation: ${safeResult.recommendation}
@@ -671,7 +1011,13 @@ What would increase confidence:
 ${summary.confidenceLift}
 
 Recommended next step:
-${summary.nextStep}`;
+${summary.nextStep}
+
+Assumptions:
+${input.assumptions || "—"}
+
+Evidence:
+${input.evidence || "—"}`;
 
     try {
       await navigator.clipboard.writeText(snapshot);
@@ -692,17 +1038,32 @@ ${summary.nextStep}`;
             <p className="mt-2 max-w-3xl text-sm text-slate-600">{input.description}</p>
 
             <div className="mt-4 flex flex-wrap gap-2">
-              <span className="rounded-full border bg-slate-50 px-3 py-1 text-xs text-slate-700">
-                Goal: <b>{input.goal}</b>
+              <span className={neutralBadge()}>
+                Goal: <b>{input.strategicGoal}</b>
               </span>
-              <span className="rounded-full border bg-slate-50 px-3 py-1 text-xs text-slate-700">
-                Impact: <b>{input.impact}</b>
+              <span className={neutralBadge()}>
+                Rev: <b>{input.revenueImpact}</b>
               </span>
-              <span className="rounded-full border bg-slate-50 px-3 py-1 text-xs text-slate-700">
+              <span className={neutralBadge()}>
+                Cost save: <b>{input.costSaving}</b>
+              </span>
+              <span className={neutralBadge()}>
+                User impact: <b>{input.userImpact}</b>
+              </span>
+              <span className={neutralBadge()}>
+                Urgency: <b>{input.regulatoryUrgency}</b>
+              </span>
+              <span className={neutralBadge()}>
+                Dependencies: <b>{input.dependencyComplexity}</b>
+              </span>
+              <span className={neutralBadge()}>
                 Effort: <b>{input.effort}</b>
               </span>
-              <span className="rounded-full border bg-slate-50 px-3 py-1 text-xs text-slate-700">
+              <span className={neutralBadge()}>
                 Confidence: <b>{input.confidence}</b>
+              </span>
+              <span className={neutralBadge()}>
+                Risk: <b>{input.riskLevel}</b>
               </span>
             </div>
           </div>
@@ -744,7 +1105,7 @@ ${summary.nextStep}`;
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="text-xs text-slate-500">Score</div>
           <div className="mt-2 text-4xl font-extrabold tracking-tight">{result.score}</div>
@@ -753,7 +1114,21 @@ ${summary.nextStep}`;
           </div>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5 shadow-sm md:col-span-2">
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="text-xs text-slate-500">Value score</div>
+          <div className="mt-2 text-4xl font-extrabold tracking-tight">{getValueScore(input)}</div>
+          <div className="mt-2 text-xs text-slate-500">Revenue + savings + user + urgency</div>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="text-xs text-slate-500">Feasibility score</div>
+          <div className="mt-2 text-4xl font-extrabold tracking-tight">
+            {getFeasibilityScore(input)}
+          </div>
+          <div className="mt-2 text-xs text-slate-500">Effort + dependencies + risk</div>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="text-xs text-slate-500">Recommendation</div>
             <span
@@ -783,8 +1158,37 @@ ${summary.nextStep}`;
           </div>
         </Card>
 
+        <Card title="Input Drivers" subtitle="The key inputs shaping the recommendation.">
+          <div className="flex flex-wrap gap-2">
+            <MetricBadge label="Strategic goal" value={input.strategicGoal} />
+            <MetricBadge label="Revenue impact" value={input.revenueImpact} />
+            <MetricBadge label="Cost saving" value={input.costSaving} />
+            <MetricBadge label="User impact" value={input.userImpact} />
+            <MetricBadge label="Regulatory urgency" value={input.regulatoryUrgency} />
+            <MetricBadge label="Time sensitivity" value={input.timeSensitivity} />
+            <MetricBadge label="Dependency complexity" value={input.dependencyComplexity} />
+            <MetricBadge label="Risk level" value={input.riskLevel} />
+            <MetricBadge label="Effort" value={String(input.effort)} />
+            <MetricBadge label="Confidence" value={String(input.confidence)} />
+          </div>
+        </Card>
+
         <Card title="Assumptions" subtitle="What must be true for this to work.">
           <Bullets items={result.assumptions} />
+          {input.assumptions?.trim() && (
+            <div className="mt-4 rounded-xl border bg-slate-50 p-3 text-sm text-slate-700">
+              <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                Input assumptions
+              </div>
+              <div className="mt-1 whitespace-pre-wrap">{input.assumptions}</div>
+            </div>
+          )}
+        </Card>
+
+        <Card title="Evidence" subtitle="Supporting context behind the business case.">
+          <div className="text-sm text-slate-700 whitespace-pre-wrap">
+            {input.evidence?.trim() || "—"}
+          </div>
         </Card>
 
         <Card title="Risks" subtitle="What could fail or slow adoption.">
@@ -840,6 +1244,28 @@ ${summary.nextStep}`;
         </Card>
       </div>
     </div>
+  );
+}
+
+function SectionTitle({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div>
+      <div className="text-sm font-semibold text-slate-900">{title}</div>
+      {subtitle && <div className="mt-1 text-xs text-slate-500">{subtitle}</div>}
+    </div>
+  );
+}
+
+function MetricBadge({ label, value }: { label: string; value: string }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${labelTone(
+        value
+      )}`}
+    >
+      <span className="opacity-80">{label}:</span>
+      <b>{value}</b>
+    </span>
   );
 }
 
